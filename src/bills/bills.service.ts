@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { CreateBillDto } from './dto/create-bill.dto';
 import { Bill } from './entities/bill.entity';
 import { BillItem } from './entities/bill-item.entity';
+import { Payment } from './entities/payment.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { Product } from '../products/entities/product.entity';
 
@@ -16,7 +17,15 @@ export class BillsService {
     await queryRunner.startTransaction();
 
     try {
-      const { customer: customerInput, discount = 0, paymentStatus = 'pending', paymentMethod = 'cash', items } = createBillDto;
+      const {
+        customer: customerInput,
+        discount = 0,
+        paymentStatus = 'pending',
+        paymentMethod = 'cash',
+        items,
+        paidAmount: paidInput,
+        pendingAmount: pendingInput
+      } = createBillDto;
 
       // 1. Handle Customer
       let customer = await queryRunner.manager.findOne(Customer, {
@@ -118,6 +127,30 @@ export class BillsService {
         throw new BadRequestException('Discount cannot exceed the bill subtotal');
       }
 
+      let paidAmount = 0;
+      let pendingAmount = totalAmount;
+      let finalStatus = paymentStatus;
+
+      if (paymentStatus === 'paid') {
+        paidAmount = totalAmount;
+        pendingAmount = 0;
+      } else if (paymentStatus === 'pending') {
+        paidAmount = 0;
+        pendingAmount = totalAmount;
+      } else if (paymentStatus === 'partially_paid') {
+        paidAmount = paidInput !== undefined ? parseFloat(paidInput.toFixed(2)) : 0;
+        pendingAmount = parseFloat((totalAmount - paidAmount).toFixed(2));
+        if (pendingAmount <= 0) {
+          finalStatus = 'paid';
+          pendingAmount = 0;
+          paidAmount = totalAmount;
+        } else if (paidAmount <= 0) {
+          finalStatus = 'pending';
+          paidAmount = 0;
+          pendingAmount = totalAmount;
+        }
+      }
+
       const bill = queryRunner.manager.create(Bill, {
         billNumber,
         customerId: customer.id,
@@ -126,12 +159,25 @@ export class BillsService {
         subtotal: parseFloat(subtotal.toFixed(2)),
         discount: parseFloat(discount.toFixed(2)),
         totalAmount,
-        paymentStatus,
+        paidAmount,
+        pendingAmount,
+        paymentStatus: finalStatus,
         paymentMethod,
         status: 'active',
       });
 
       const savedBill = await queryRunner.manager.save(Bill, bill);
+
+      // Save initial payment if paidAmount > 0
+      if (paidAmount > 0) {
+        const payment = queryRunner.manager.create(Payment, {
+          billId: savedBill.id,
+          bill: savedBill,
+          amountPaid: paidAmount,
+          paymentMethod,
+        });
+        await queryRunner.manager.save(Payment, payment);
+      }
 
       // 5. Assign Bill ID to items and save items
       for (const billItem of billItemsToSave) {
@@ -164,6 +210,12 @@ export class BillsService {
         items: {
           product: true,
         },
+        payments: true,
+      },
+      order: {
+        payments: {
+          paymentDate: 'ASC',
+        },
       },
     });
 
@@ -182,5 +234,64 @@ export class BillsService {
         billDate: 'DESC',
       },
     });
+  }
+
+  async addPayment(id: number, amountPaid: number, paymentMethod: string): Promise<Bill> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const bill = await queryRunner.manager
+        .getRepository(Bill)
+        .createQueryBuilder('bill')
+        .setLock('pessimistic_write')
+        .where('bill.id = :id', { id })
+        .getOne();
+
+      if (!bill) {
+        throw new NotFoundException(`Bill with ID ${id} not found`);
+      }
+
+      const pendingAmt = Number(bill.pendingAmount);
+      if (pendingAmt <= 0) {
+        throw new BadRequestException('This invoice is already fully paid.');
+      }
+
+      if (amountPaid > pendingAmt) {
+        throw new BadRequestException(`Payment amount (₹${amountPaid}) cannot exceed pending amount (₹${pendingAmt}).`);
+      }
+
+      // Record the new payment
+      const payment = queryRunner.manager.create(Payment, {
+        billId: bill.id,
+        amountPaid: parseFloat(amountPaid.toFixed(2)),
+        paymentMethod,
+      });
+      await queryRunner.manager.save(Payment, payment);
+
+      // Update bill amounts
+      bill.paidAmount = parseFloat((Number(bill.paidAmount) + amountPaid).toFixed(2));
+      bill.pendingAmount = parseFloat((Number(bill.totalAmount) - bill.paidAmount).toFixed(2));
+
+      // Update status
+      if (bill.pendingAmount <= 0) {
+        bill.paymentStatus = 'paid';
+        bill.pendingAmount = 0;
+      } else {
+        bill.paymentStatus = 'partially_paid';
+      }
+
+      await queryRunner.manager.save(Bill, bill);
+      await queryRunner.commitTransaction();
+
+      // Retrieve full bill details to return
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

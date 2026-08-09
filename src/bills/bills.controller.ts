@@ -22,4 +22,13 @@ export class BillsController {
   async findOne(@Param('id', ParseIntPipe) id: number) {
     return this.billsService.findOne(id);
   }
+
+  @Post(':id/payments')
+  async addPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('amountPaid') amountPaid: number,
+    @Body('paymentMethod') paymentMethod: string,
+  ) {
+    return this.billsService.addPayment(id, amountPaid, paymentMethod);
+  }
 }

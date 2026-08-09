@@ -51,6 +51,16 @@ export class CreateBillDto {
   @IsOptional()
   paymentMethod?: string = 'cash';
 
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  paidAmount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  pendingAmount?: number;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => BillItemInputDto)

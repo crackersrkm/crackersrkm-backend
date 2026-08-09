@@ -1,6 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { Customer } from '../../customers/entities/customer.entity';
 import { BillItem } from './bill-item.entity';
+import { Payment } from './payment.entity';
 
 @Entity('bills')
 export class Bill {
@@ -38,6 +39,18 @@ export class Bill {
   }})
   totalAmount: number;
 
+  @Column('decimal', { name: 'paid_amount', precision: 12, scale: 2, default: 0.00, transformer: {
+    to: (value: number) => value,
+    from: (value: string) => parseFloat(value),
+  }})
+  paidAmount: number;
+
+  @Column('decimal', { name: 'pending_amount', precision: 12, scale: 2, default: 0.00, transformer: {
+    to: (value: number) => value,
+    from: (value: string) => parseFloat(value),
+  }})
+  pendingAmount: number;
+
   @Column({ name: 'payment_status', length: 20, default: 'pending' })
   paymentStatus: string;
 
@@ -55,4 +68,7 @@ export class Bill {
 
   @OneToMany(() => BillItem, (item) => item.bill, { cascade: true })
   items: BillItem[];
+
+  @OneToMany(() => Payment, (payment) => payment.bill, { cascade: true })
+  payments: Payment[];
 }
