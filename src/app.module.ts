@@ -24,8 +24,8 @@ import { BillsModule } from './bills/bills.module';
         type: 'postgres',
         host: configService.get<string>('DB_HOST', 'localhost'),
         port: configService.get<number>('DB_PORT', 5432),
-        username: configService.get<string>('DB_USERNAME', 'rkm_crackers'),
-        password: configService.get<string>('DB_PASSWORD', 'crackersrkm2026'),
+        username: configService.get<string>('DB_USERNAME', 'postgres'),
+        password: configService.get<string>('DB_PASSWORD', 'postgres'),
         database: configService.get<string>('DB_NAME', 'rkm_crackers'),
         entities: [User, Product, Customer, Bill, BillItem, Payment],
         synchronize: true, // Automatically synchronize schema in dev

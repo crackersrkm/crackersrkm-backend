@@ -24,18 +24,57 @@ export class ProductsService {
     return this.productRepository.save(updated);
   }
 
-  async findAll(query: GetProductsQueryDto): Promise<{ data: Product[]; total: number; limit: number; offset: number }> {
-    const { limit = 10, offset = 0 } = query;
-    const [data, total] = await this.productRepository.findAndCount({
-      take: limit,
-      skip: offset,
-      order: { id: 'ASC' },
-    });
+  async findAll(query: GetProductsQueryDto): Promise<{
+    data: Product[];
+    total: number;
+    limit: number;
+    offset: number;
+    totalProductsCount: number;
+    lowStockCount: number;
+    outOfStockCount: number;
+  }> {
+    const { limit = 10, offset = 0, search, stockFilter } = query;
+
+    const qb = this.productRepository.createQueryBuilder('product');
+
+    if (search && search.trim()) {
+      qb.andWhere('LOWER(product.name) LIKE LOWER(:search)', { search: `%${search.trim()}%` });
+    }
+
+    if (stockFilter === 'instock') {
+      qb.andWhere('product.stockQuantity >= 20 AND product.isActive = true');
+    } else if (stockFilter === 'low') {
+      qb.andWhere('product.stockQuantity > 0 AND product.stockQuantity < 20 AND product.isActive = true');
+    } else if (stockFilter === 'out') {
+      qb.andWhere('product.stockQuantity <= 0 AND product.isActive = true');
+    } else if (stockFilter === 'inactive') {
+      qb.andWhere('product.isActive = false');
+    }
+
+    qb.orderBy('product.id', 'ASC')
+      .skip(offset)
+      .take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+
+    const totalProductsCount = await this.productRepository.count();
+    const lowStockCount = await this.productRepository
+      .createQueryBuilder('p')
+      .where('p.stockQuantity > 0 AND p.stockQuantity < 20 AND p.isActive = true')
+      .getCount();
+    const outOfStockCount = await this.productRepository
+      .createQueryBuilder('p')
+      .where('p.stockQuantity <= 0 AND p.isActive = true')
+      .getCount();
+
     return {
       data,
       total,
       limit,
       offset,
+      totalProductsCount,
+      lowStockCount,
+      outOfStockCount,
     };
   }
 

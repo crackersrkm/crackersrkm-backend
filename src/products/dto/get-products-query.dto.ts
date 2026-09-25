@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class GetProductsQueryDto {
@@ -13,4 +13,13 @@ export class GetProductsQueryDto {
   @Min(0)
   @Type(() => Number)
   offset?: number = 0;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  stockFilter?: string;
 }
+
